@@ -9,7 +9,7 @@ from geodatasets import get_path
 import os
 
 # path to data
-path = os.path.expanduser('~/idf_cmip6_local/AMS_NOAA/data/')
+path = '../../Data/AMS_NOAA'
 
 # name of file to read
 name = '01d_AMS_NOAA_Stations.csv'

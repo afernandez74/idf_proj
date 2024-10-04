@@ -1,9 +1,12 @@
 import rasterio
+import gdown
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from rasterio.plot import show
-#%% load minnesota outline for map 
+#%% load DDF rasters from Google Drive
+url = "https://drive.google.com/drive/folders/191rVE6qxJSttuIRoIONPA05eFg_Z1h0Q?usp=drive_link"
 
+#%% load minnesota outline for map 
 url = "https://www2.census.gov/geo/tiger/TIGER2022/STATE/tl_2022_us_state.zip"
 usa = gpd.read_file(url)
 minnesota = usa[usa['NAME'] == 'Minnesota']
