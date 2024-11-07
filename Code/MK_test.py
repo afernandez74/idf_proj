@@ -1,5 +1,6 @@
+#%%
 import pandas as pd
-import numpy as np
+import xarray as xr
 import pymannkendall as mk
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -9,26 +10,52 @@ from geodatasets import get_path
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import os
+
 #%%
 # path to data
 path = '../Data/AMS_NOAA/'
+
 #save path
 save_path = '../Figures/MK_trend_maps/'
 
 # name of file to read
 name = '60d_AMS_NOAA_Stations.csv'
 
+# minimum length of data series to analyze
+min_years = 80
+
 # read in AMS data
-df = pd.read_csv(path +name)
+df = pd.read_csv(path + name)
+df2 = pd.read_csv(path+name,header = None) # for year values
 
-# tidy up pandas dataframe
-df_AMS = df.iloc[:, 4:].T # series as columns
-df_AMS = df_AMS.reset_index() # make years column instead of having them as index
-df_AMS.rename(columns={'index': 'Year'}, inplace=True)
+# First 4 columns contain metadata
+metadata_columns = df.columns[0:4].tolist()
+metadata = df[metadata_columns]
 
-#%% mann-kendall trend test
+# Dataframe without metadata
+df_dat = df.drop(columns=metadata_columns).T
+dat = df_dat.values
 
+years = df2.iloc[0,4:].values.astype(int)
+
+AMS = xr.DataArray(
+    data = dat,
+    dims = ['year','id'],
+    coords ={
+        'year' : years,
+        'id' : df_dat.columns,
+        'lat' : ('id', metadata['lat'].values),
+        'lon' : ('id', metadata['lon'].values),
+        'name' : ('id', metadata['station name']),
+        'code' : ('id', metadata['station code']),
+        },
+    name = "AMS"
+)
+#%% define functions
+
+#mann kendall function
 def mk_test(series):
+    
     result = mk.original_test(series)
     return {
         'trend': result.trend,
@@ -42,26 +69,38 @@ def mk_test(series):
         'intercept': result.intercept,
         'dat_len': series.count()  # Add dat_len as an entry
     }
+#%% Filter AMS series
 
-#%% run trend test on series
-# Initialize a list to store results
-results = []
+# filter to series that meet minimum length requirement
+AMS_lon_ix = AMS.count(dim='year') >= min_years
+AMS_lon = AMS.where(AMS_lon_ix, drop = True)
 
-# Iterate over each column in the DataFrame and perform the Mann-Kendall test
-c=0
-for column in df_AMS.columns:
-    dat = df_AMS[column]
-    result = mk_test(dat)
-    results.append(result)
-    c=c+1
+# drop NANs from the leftover series and pick the last min_years in each for analysis
+AMS_filt =[]
 
-results_df = pd.DataFrame(results[1:])
-results_df = pd.concat([results_df, df.iloc[:, :5]], axis = 1)
+for i in range(AMS_lon.shape[1]):
+    temp = AMS_lon[:,i].dropna(dim='year')
+    temp = temp.isel(year=slice(-min_years,None))
+    AMS_filt.append(temp)
+    
+AMS_filt = xr.concat(AMS_filt,dim='id')
 
-#%% minimum series length to plot results
-# results for series with more than min_years years of data
-min_years = 100
-results_100_df = results_df[results_df['dat_len']>min_years]
+#%% Perform MK test on filtered AMS array
+mk_results = []
+
+for i in range(AMS_filt.shape[0]):
+    result = mk_test(AMS_filt.isel(id=i))
+    mk_results.append(result)
+
+# create dataset of results
+mk_results_ds = xr.Dataset(
+    {key: ('id', [res[key] for res in mk_results]) for key in mk_results[0].keys()},
+    coords = {'id': AMS_filt.coords['id']}
+    )
+
+# merge dataset of results with AMS array
+AMS_filt_mk = AMS_filt.to_dataset(name = 'AMS')
+AMS_filt_mk = AMS_filt_mk.merge(mk_results_ds)
 
 #%% load minnesota outline for map 
 
@@ -69,76 +108,75 @@ url = "https://www2.census.gov/geo/tiger/TIGER2022/STATE/tl_2022_us_state.zip"
 usa = gpd.read_file(url)
 minnesota = usa[usa['NAME'] == 'Minnesota']
 
-#%% map results
+# Lambert Conformal Conic projection 
+lambert_proj = ccrs.LambertConformal(
+    central_longitude = AMS_filt_mk.lon.mean(dim='id').item(),
+    central_latitude = AMS_filt_mk.lat.mean(dim='id').item(),
+    standard_parallels = (33,45)
+    )
 
-#select dataframe to plot
-df_dat = results_100_df
+#%% map trend test results 
 
-# Create figure and axis
-fig, ax = plt.subplots(figsize=(9, 6), subplot_kw={'projection': ccrs.PlateCarree()})
-plt.title(name[:-4]+' Mann-Kendall trend test slopes and trend analysis')
+#dataset to plot
+AMS_mk = AMS_filt_mk
 
-# Plot Minnesota outline
-minnesota.boundary.plot(ax=ax, color='black')
+#significance value for plot
+sig = 0.05
 
-# Set circle colors based trend
-cats = df_dat['trend'].unique()
-color_dict = {
-    'decreasing': '#FF0000',  # Red
-    'no trend': '#808080',  # Gray
-    'increasing': '#0000FF',  # Blue
+# colors for circles
+trend_clr = {'no trend': 'gray',
+             'increasing': 'blue',
+             'decreasing': 'red'
 }
 
-colors = [color_dict[cat] for cat in df_dat['trend']]
+#max and min slopes
+slope_hi = AMS_filt_mk['slope'].max().item()
 
-# Create circles
-circles = []
-colors = []
-for x, y, slope, category, p_val in zip(df_dat['lon'], df_dat['lat'], df_dat['slope'], df_dat['trend'], df_dat['p']):
-    if p_val < 0.05:  # Example criterion: fill circles where value > 5
-        circle = Circle((x, y), radius=slope*10, facecolor=color_dict[category], edgecolor=color_dict[category], alpha=0.6)
-    else:
-        circle = Circle((x, y), radius=slope*10, facecolor='none', edgecolor=color_dict[category], alpha=0.6)
-    circles.append(circle)
-    colors.append(color_dict[category])
 
-# Add circles to the plot
-for circle in circles:
-    ax.add_patch(circle)
+# Colormap for slope values
+cmap = plt.cm.rainbow_r
 
-# Add a legend for categories
-for category, color in color_dict.items():
-    ax.scatter([], [], c=color, label=category)
-category_legend = ax.legend(title='Categories', loc='center left', bbox_to_anchor=(1.2, 0.7))
+# Create figure and axis
+fig, ax = plt.subplots(figsize=(9, 6), subplot_kw={'projection': lambert_proj})
 
-# Add a legend for circle sizes
-size_values = [df_dat['slope'].min()*10, df_dat['slope'].mean()*10, df_dat['slope'].max()*10]
-size_labels = ['Min', 'Mean', 'Max']
+plt.title(name[:-4]+' MK trend test')
 
-# Create a separate axis for size legend
-size_legend_ax = fig.add_axes([0.8, 0.15, 0.2, 0.3])
-size_legend_ax.set_xlim(0, 1)
-size_legend_ax.set_ylim(0, 1)
-size_legend_ax.axis('off')
+# draw political boundaries 
+ax.add_feature(cfeature.BORDERS, linewidth=0.5)
+ax.add_feature(cfeature.STATES, linewidth=0.5)
+ax.add_feature(cfeature.RIVERS, linestyle = '--', 
+               color = 'lightblue', linewidth = 0.4,zorder=1)
+ax.add_feature(cfeature.LAKES, linestyle = '--', 
+               color = 'lightblue', linewidth = 0.4,zorder=1)
+minnesota = minnesota.to_crs(lambert_proj.proj4_init)
+minnesota.boundary.plot(ax=ax, color='black', linewidth=1.5)
 
-# Plot circles and labels
-for i, (value, label) in enumerate(zip(size_values, size_labels)):
-    y = 0.8 - (i * 0.3)  # Distribute circles vertically
-    circle = plt.Circle((0.2, y), radius=value, fill=False, edgecolor='black')
-    size_legend_ax.add_artist(circle)
-    size_legend_ax.text(0.5, y, f'{label}: {value:.2f}', va='center', ha='left')
+# iterate through each location and plot circle
 
-size_legend_ax.set_title('Value Scale', fontweight='bold')
-
+for i in range(AMS_filt_mk.dims['id']):
+    lat = AMS_mk['lat'].isel(id=i).item()
+    lon = AMS_mk['lon'].isel(id=i).item()
+    trend = AMS_mk['trend'].isel(id=i).item()
+    slope = AMS_mk['slope'].isel(id=i).item()
+    p_val = AMS_mk['p'].isel(id=i).item()
+    t = AMS_mk['Tau'].isel(id=i).item()
+    
+    # determine color, radius and significance 
+    clr = trend_clr.get(trend)
+    rad = 100 * abs(slope)/slope_hi
+    
+    #plot circle
+    ax.scatter(lon,lat, color = clr, s = rad,
+               transform = ccrs.PlateCarree(),zorder=2)#,
+               #edgecolor='black' if p_val <= sig else 'none')
+               
 # Add gridlines
-ax.gridlines(draw_labels=True)
+ax.gridlines(draw_labels=True, x_inline=False,y_inline=False,linewidth=0)
 
 # Set extent (adjust these values based on your data)
 ax.set_extent([df['lon'].min()-1, df['lon'].max()+1, 
                df['lat'].min()-1, df['lat'].max()+1], crs=ccrs.PlateCarree())
 
-# Adjust layout and show plot
-# plt.tight_layout()
 
 save_option = input("Save figure? (y/n): ").lower()
 
@@ -150,3 +188,4 @@ if save_option == 'y':
     plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
 else:
     plt.show()
+
