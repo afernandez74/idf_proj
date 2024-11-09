@@ -171,7 +171,7 @@ for i in range(AMS_filt_mk.dims['id']):
                #edgecolor='black' if p_val <= sig else 'none')
                
 # Add gridlines
-ax.gridlines(draw_labels=True, x_inline=False,y_inline=False,linewidth=0)
+ax.gridlines(draw_labels=True, x_inline=False,y_inline=False)
 
 # Set extent (adjust these values based on your data)
 ax.set_extent([df['lon'].min()-1, df['lon'].max()+1, 
