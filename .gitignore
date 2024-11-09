@@ -1,3 +1,4 @@
 Data/
 Figures/
 .DS_store
+__pycache__
