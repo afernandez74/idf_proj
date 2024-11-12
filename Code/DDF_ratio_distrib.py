@@ -1,16 +1,12 @@
 import numpy as np
 import pandas as pd
-import rasterio
-import geopandas as gpd
 import matplotlib.pyplot as plt
 from rasterio.features import geometry_mask
 from rasterio.warp import calculate_default_transform, reproject, Resampling
-import pyproj 
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 import os
 import seaborn as sns
-from funcs import reproject_raster, init_lambert_proj, load_minnesota_reproj
+import xarray as xr
+from funcs import reproject_raster, init_lambert_proj, load_minnesota_reproj, create_dataarray
 
 #%% Choose rasters to plot
 base_path = '../Data/DDF_tif/'
@@ -29,11 +25,11 @@ clip_MN = True #if true, raster data clipped to MN
 RI = 100
 
 #duration [days]
-D = 1
+D = 10
 
 #save path results
-save_path = '../Figures/DDF_maps/'
-save_path = save_path + 'clip_MN/' if clip_MN else save_path
+save_path = '../Figures/DDF_viols/'
+save_path = save_path + 'clip_MN/' if clip_MN else save_path + 'whole/'
 
 # =============================================================================
 # Set paths
@@ -45,55 +41,45 @@ path = path +'adjusted/' if adjusted else path + 'unadjusted/'
 # path to historical data 
 path_hist = path + 'historical/1995-2014/'
 
-files_hist_all = [file for file in os.listdir(path_hist) if not file.startswith('.')]
+files_hist_all = [path_hist + file for file in os.listdir(path_hist) if not file.startswith('.')]
 
+#%%
 # ==============================================================================
 # Pick future scenario  - instead of choosing, calculate them all and plot violins of each
 # so 9 violins per plot
 # =============================================================================
 
-scenarios = [file for file in os.listdir(path) if not file.startswith('.')]
+scenarios = [file for file in os.listdir(path) if not file.startswith('.') and not file.startswith('historical')]
 
-print('Scenarios:')
-for i, item in enumerate (scenarios):
-    print(f'{i}:    {item}')
+paths_scenarios = [path + scenario for scenario in scenarios]
 
-while True:
-    try:
-        ix = int(input("Enter the number of your future scenario choice: "))
-        if 0 <= ix <= len(scenarios):
-            break
-        else:
-            print(f"Please enter a number between 0 and {len(scenarios)-1}.")
-    except ValueError:
-        print("Please enter a valid number.")
+paths_all = []
+for path in paths_scenarios:
+    files = [file for file in os.listdir(path) if not file.startswith('.')]
+    paths_temp = [path + '/' + file for file in files]
+    paths_all.append(paths_temp)
 
-path = path + scenarios[ix] + '/'
-
-# list of files in selexted paths - projections
-periods_futu = [file for file in os.listdir(path) if not file.startswith('.')]
-
-#%% filter paths for correct files
+paths_all = [item for row in paths_all for item in row]
 
 files_all = []
+for path in paths_all:
+    files = [file for file in os.listdir(path) if not file.startswith('.')]
+    files_temp = [path + '/' + file for file in files]
+    files_all.append(files_temp)
 
-# find all paths in the specified scenario
-for period in periods_futu:
-    pathy = path + period + '/'
-    filys = [file for file in os.listdir(pathy) if not file.startswith('.')]
-    for file in filys:
-        files_all.append(period+'/'+file)
+files_all = [item for row in files_all for item in row]
+
+del files_temp, paths_temp, files, paths_all, paths_scenarios
+#%% filter paths for correct files
         
 #sufix for specified return interval and duration
 suf = f'{RI}yr{D:02}da'
 
 #filter paths for those with specified return interval and duration
 files = [s for s in files_all if suf in s]
-#paths for desired files
-paths = [path + name for name in files]
 
+# final lists of files to be loaded and analyzed
 files_hist = [s for s in files_hist_all if suf in s]
-paths_hist = [path_hist + file for file in files_hist]
 
 #%% load minnesota outline and projection for maps
 lambert_proj = init_lambert_proj()
@@ -101,21 +87,22 @@ minnesota = load_minnesota_reproj(lambert_proj)
 #%% open raster files and reproject
 
 # =============================================================================
-#  read projection raster 
+#  read projection rasters
 # =============================================================================
 data_futu=[]
-metadata_futu=[]
-for file in paths:
+for file in files:
+    name = file[file.find('unadjusted_') + 11 : file.find('.tif')]
     data_futu_temp, metadata_temp = reproject_raster(file,lambert_proj.proj4_init)
-    data_futu.append(data_futu_temp)
-    metadata_futu.append(metadata_temp)
+    data_futu_da = create_dataarray(data_futu_temp, metadata_temp, name)
+    data_futu.append(data_futu_da)
 
+data_futu = xr.concat(data_futu,dim='source')
 # =============================================================================
 #  read historical period raster
 # =============================================================================
 data_hist=[]
 metadata_hist=[]
-for file in paths_hist:
+for file in files_hist:
     data_hist_temp, metadata_temp = reproject_raster(file,lambert_proj.proj4_init)
     data_hist.append(data_hist_temp)
     metadata_hist.append(metadata_temp)
@@ -131,36 +118,40 @@ mask = geometry_mask(
     invert = True,
     out_shape = (metadata['height'],metadata['width'])
     )
+
 # perform the clip
-
 if clip_MN:
-    for i in range(len(data_futu)):
-        data_futu[i] = np.where(mask, data_futu[i], np.nan)
+    for name, da in data_futu.groupby('source'):
+        data_futu.loc[dict(source=name)] = np.where(mask, da.squeeze(), np.nan)
     data_hist[0] = np.where(mask, data_hist[0], np.nan)
+
 #%% calculate ratios
-ratios = []
-for i in range(len(data_futu)):
-    ratio = data_futu[i] / data_hist[0]
-    ratios.append(ratio)
+ratios = data_futu.copy()
 
-ratios_df = pd.DataFrame({
-    periods_futu[0]:ratios[0].flatten(),
-    periods_futu[1]:ratios[1].flatten(),
-    periods_futu[2]:ratios[2].flatten()
-})
-ratios_df = ratios_df.sort_index(axis=1)
-#%% plot distribution of ratios
-
-for ratio in ratios:
-    sns.kdeplot(ratio.flatten(), shade=True)
-plt.title("Kernel Density Estimate of Raster Values")
-plt.xlabel("Pixel Value")
-plt.ylabel("Density")
-plt.show()
-
+for name, da in data_futu.groupby('source'):
+    ratios.loc[dict(source=name)] = da.squeeze().values/data_hist[0]
+ratios.name = 'ratios'
+ratios_df = ratios.to_dataframe().reset_index()
 #%% violin
-for ratio in ratios:    
-    sns.violinplot(data=ratios_df,fill=True)
-plt.title("Violin Plot of Raster Values")
-plt.xlabel("Pixel Value")
-plt.show()
+
+ratios_df = ratios_df.sort_values(by = ['scenario', 'period'])
+plt.figure(figsize=(10, 6))
+sns.violinplot(x='source', y='ratios', hue='period', data=ratios_df, inner="quart", palette="muted", scale="width")
+plt.title(f'Distribution of ratios for {suf}')
+plt.xticks(rotation=45)
+plt.legend(loc='upper left')
+plt.ylim(0.5,2.5)
+plt.grid(zorder = 0.5)
+
+save_option = input("Save figure? (y/n): ").lower()
+
+if save_option == 'y':
+    save_path_name = save_path + 'DDF_viol_' + suf
+
+    # Save as SVG
+    plt.savefig(save_path_name +'.svg', format='svg', dpi=300, bbox_inches='tight')
+    # Save as PNG
+    plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
+else:
+    plt.show()
+

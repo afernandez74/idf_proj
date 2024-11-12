@@ -3,6 +3,7 @@ import numpy as np
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 import cartopy.crs as ccrs
 import geopandas as gpd
+import xarray as xr
 #%% reprojection function for raster DDF files
 
 def reproject_raster(input_path, dst_crs):
@@ -66,3 +67,35 @@ def load_minnesota_reproj(lambert_proj):
     minnesota = usa[usa['NAME'] == 'Minnesota']
     minnesota = minnesota.to_crs(lambert_proj.proj4_init)
     return minnesota
+#%% create xarray dataarray from raster transform
+
+def create_dataarray(data, metadata, name):
+    # Extract metadata information
+    transform = metadata['transform']
+    width = metadata['width']
+    height = metadata['height']
+    crs = metadata['crs']
+    
+    # Calculate the x and y coordinates using the affine transform
+    x_coords = np.arange(width) * transform[0] + transform[2]
+    y_coords = np.arange(height) * transform[4] + transform[5]
+    
+    # Create DataArray
+    dataarray = xr.DataArray(
+        data,
+        dims=["y", "x"],
+        coords={
+            "x": ("x", x_coords),
+            "y": ("y", y_coords),
+            "scenario": name[0:name.find('_')],
+            "period": name[name.find('_20')+1:name.find('_20')+10],
+            "source":name[0:name.find('_')] + "_" + name[name.find('_20')+1:name.find('_20')+10]
+
+        },
+        attrs={"crs": str(crs),
+               "transform": transform,
+               "name": name
+                }
+    )
+    
+    return dataarray

@@ -7,7 +7,7 @@ import pyproj
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import os
-from funcs import reproject_raster, init_lambert_proj, load_minnesota_reproj
+from funcs import reproject_raster, init_lambert_proj, load_minnesota_reproj, create_dataarray
 #%% Choose rasters to plot
 base_path = '../Data/DDF_tif/'
 
@@ -29,7 +29,7 @@ D = 1
 
 #save path results
 save_path = '../Figures/DDF_maps/'
-save_path = save_path + 'clip_MN/' if clip_MN else save_path
+save_path = save_path + 'clip_MN/' if clip_MN else save_path + 'whole/'
 
 # =============================================================================
 # Set paths
@@ -107,7 +107,7 @@ minnesota = load_minnesota_reproj(lambert_proj)
 #  read projection raster 
 # =============================================================================
 
-data_futu, metadata = reproject_raster(path+pref_futu+f'{RI}yr{D:02}da.tif',
+data_futu, metadata = reproject_raster(path + pref_futu + f'{RI}yr{D:02}da.tif',
                                                  lambert_proj.proj4_init)
 # =============================================================================
 #  read historical period raster
