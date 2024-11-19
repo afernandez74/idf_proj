@@ -80,6 +80,14 @@ def create_dataarray(data, metadata, name):
     x_coords = np.arange(width) * transform[0] + transform[2]
     y_coords = np.arange(height) * transform[4] + transform[5]
     
+    source = name
+    scenario = name[0:name.find('_')]
+    if scenario != 'historical':
+        period = name[name.find('_20')+1:name.find('_20')+10]
+    else:
+        period = name[name.find('_19')+1:name.find('_19')+10]
+    RI = int(name[name.find(period)+len(period)+1:name.find('yr')])
+    D = int(name[name.find('da')-2:name.find('da')])
     # Create DataArray
     dataarray = xr.DataArray(
         data,
@@ -87,9 +95,11 @@ def create_dataarray(data, metadata, name):
         coords={
             "x": ("x", x_coords),
             "y": ("y", y_coords),
-            "scenario": name[0:name.find('_')],
-            "period": name[name.find('_20')+1:name.find('_20')+10],
-            "source":name[0:name.find('_')] + "_" + name[name.find('_20')+1:name.find('_20')+10]
+            "scenario": scenario,
+            "period": period,
+            "RI":RI,
+            "D":D,
+            "source":source
 
         },
         attrs={"crs": str(crs),
