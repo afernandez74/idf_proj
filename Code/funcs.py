@@ -4,6 +4,24 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 import cartopy.crs as ccrs
 import geopandas as gpd
 import xarray as xr
+import pymannkendall as mk
+#%% mann kendall trend test function
+def mk_test(series):
+    
+    result = mk.original_test(series)
+    return {
+        'trend': result.trend,
+        'h': result.h,
+        'p': result.p,
+        'z': result.z,
+        'Tau': result.Tau,
+        's': result.s,
+        'var_s': result.var_s,
+        'slope': result.slope,
+        'intercept': result.intercept,
+        'dat_len': series.count()  # Add dat_len as an entry
+    }
+
 #%% reprojection function for raster DDF files
 
 def reproject_raster(input_path, dst_crs):

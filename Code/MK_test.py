@@ -1,15 +1,22 @@
 #%%
 import pandas as pd
+import numpy as np
 import xarray as xr
-import pymannkendall as mk
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 from matplotlib.collections import PatchCollection
 from matplotlib.patches import Circle
+import matplotlib.colors as mcolors
+import matplotlib.path as mpath
+from scipy.interpolate import griddata, NearestNDInterpolator
 from geodatasets import get_path
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import os
+from funcs import mk_test
+plt.rcdefaults()
+plt.style.use('seaborn-v0_8-poster')
 
 #%%
 # path to data
@@ -19,10 +26,11 @@ path = '../Data/AMS_NOAA/'
 save_path = '../Figures/MK_trend_maps/'
 
 # name of file to read
-name = '60d_AMS_NOAA_Stations.csv'
+name = '01d_AMS_NOAA_Stations.csv'
 
 # minimum length of data series to analyze
-min_years = 80
+min_years = 50
+
 
 # read in AMS data
 df = pd.read_csv(path + name)
@@ -51,25 +59,11 @@ AMS = xr.DataArray(
         },
     name = "AMS"
 )
-#%% define functions
 
-#mann kendall function
-def mk_test(series):
-    
-    result = mk.original_test(series)
-    return {
-        'trend': result.trend,
-        'h': result.h,
-        'p': result.p,
-        'z': result.z,
-        'Tau': result.Tau,
-        's': result.s,
-        'var_s': result.var_s,
-        'slope': result.slope,
-        'intercept': result.intercept,
-        'dat_len': series.count()  # Add dat_len as an entry
-    }
-#%% Filter AMS series
+# keep only the data in time range
+AMS = AMS.sel(year = slice(1950,2010))
+
+#%% Filter AMS series by minimum year and perform MK trend test
 
 # filter to series that meet minimum length requirement
 AMS_lon_ix = AMS.count(dim='year') >= min_years
@@ -83,9 +77,8 @@ for i in range(AMS_lon.shape[1]):
     temp = temp.isel(year=slice(-min_years,None))
     AMS_filt.append(temp)
     
-AMS_filt = xr.concat(AMS_filt,dim='id')
+AMS_filt = xr.concat(AMS_filt,dim='id')#.sel(year = slice(1900,2000))
 
-#%% Perform MK test on filtered AMS array
 mk_results = []
 
 for i in range(AMS_filt.shape[0]):
@@ -120,24 +113,19 @@ lambert_proj = ccrs.LambertConformal(
 #dataset to plot
 AMS_mk = AMS_filt_mk
 
+# var to plot = normalized slope
+var = (AMS_mk.slope) /(AMS_mk.slope.max()) 
+
+
+# latitudes and longitudes for map extent
+min_lon, min_lat = -97.94, 42.54
+max_lon, max_lat = -88.69, 49.97
+
 #significance value for plot
 sig = 0.05
 
-# colors for circles
-trend_clr = {'no trend': 'gray',
-             'increasing': 'blue',
-             'decreasing': 'red'
-}
-
-#max and min slopes
-slope_hi = AMS_filt_mk['slope'].max().item()
-
-
-# Colormap for slope values
-cmap = plt.cm.rainbow_r
-
 # Create figure and axis
-fig, ax = plt.subplots(figsize=(9, 6), subplot_kw={'projection': lambert_proj})
+fig, ax = plt.subplots(subplot_kw={'projection': lambert_proj})
 
 plt.title(name[:-4]+' MK trend test')
 
@@ -145,38 +133,119 @@ plt.title(name[:-4]+' MK trend test')
 ax.add_feature(cfeature.BORDERS, linewidth=0.5)
 ax.add_feature(cfeature.STATES, linewidth=0.5)
 ax.add_feature(cfeature.RIVERS, linestyle = '--', 
-               color = 'lightblue', linewidth = 0.4,zorder=1)
+               color = 'lightblue', linewidth = 0.4,zorder=2)
 ax.add_feature(cfeature.LAKES, linestyle = '--', 
-               color = 'lightblue', linewidth = 0.4,zorder=1)
+               color = 'lightblue', linewidth = 0.4,zorder=2)
 minnesota = minnesota.to_crs(lambert_proj.proj4_init)
-minnesota.boundary.plot(ax=ax, color='black', linewidth=1.5)
+minnesota.boundary.plot(ax=ax, color='black', linewidth=1.5,zorder = 9)
 
-# iterate through each location and plot circle
+#colormap
+cmap = plt.cm.bwr_r
+norm = colors.Normalize(vmin=-var.max(), vmax=var.max())
 
-for i in range(AMS_filt_mk.dims['id']):
-    lat = AMS_mk['lat'].isel(id=i).item()
-    lon = AMS_mk['lon'].isel(id=i).item()
-    trend = AMS_mk['trend'].isel(id=i).item()
-    slope = AMS_mk['slope'].isel(id=i).item()
-    p_val = AMS_mk['p'].isel(id=i).item()
-    t = AMS_mk['Tau'].isel(id=i).item()
-    
-    # determine color, radius and significance 
-    clr = trend_clr.get(trend)
-    rad = 100 * abs(slope)/slope_hi
-    
-    #plot circle
-    ax.scatter(lon,lat, color = clr, s = rad,
-               transform = ccrs.PlateCarree(),zorder=2)#,
-               #edgecolor='black' if p_val <= sig else 'none')
-               
+# =============================================================================
+# points plot 
+# =============================================================================
+# Plot the points
+scatter = ax.scatter(
+    AMS_mk.lon, AMS_mk.lat,
+    c='none',
+    s=80,
+    transform=ccrs.PlateCarree(),
+    cmap=cmap,
+    norm=norm,
+    edgecolor=plt.cm.bwr_r(norm(var)),
+    linewidth=3,
+    alpha=1,
+    zorder = 10
+)
+
+# plot black outline to all points
+scatter_outlines = ax.scatter(
+    AMS_mk.lon, AMS_mk.lat,
+    c='none',
+    s=170,
+    transform=ccrs.PlateCarree(),
+    # cmap=cmap,
+    # norm=norm,
+    edgecolor='black',
+    linewidth=1,
+    alpha=1,
+    zorder = 12
+)
+
+# Create a mask for significant p-values
+significant = AMS_mk.p < sig  # Adjust threshold as needed
+
+# Plot filled circles for significant points
+scatter2 = ax.scatter(
+    AMS_mk.lon.where(significant), AMS_mk.lat.where(significant),
+    c=var.where(significant),
+    s=80,
+    transform=ccrs.PlateCarree(),
+    cmap=cmap,
+    norm=norm,
+    alpha=1.0,
+    zorder = 11
+)
+
+# =============================================================================
+# contour plot in background
+# =============================================================================
+#grid for contouf plot
+xx,yy = np.meshgrid(np.linspace(min_lon,max_lon,100),
+                    np.linspace(min_lat,max_lat,100))
+#interp z data
+zz = griddata((AMS_mk.lon.values, AMS_mk.lat.values), 
+                       var.values, (xx, yy), method='cubic')
+
+# Transform the grid to Lambert projection
+lambert_transformer = lambert_proj.transform_points(ccrs.PlateCarree(), xx, yy)
+xx_lambert, yy_lambert = lambert_transformer[..., 0], lambert_transformer[..., 1]
+
+# Create a nearest-neighbor interpolator
+nn_interpolator = NearestNDInterpolator(
+    list(zip(AMS_mk.lon, AMS_mk.lat)), 
+    var
+)
+
+# Fill NaN values (outside data bounds) with nearest-neighbor interpolation
+mask = np.isnan(zz)
+zz[mask] = nn_interpolator(xx[mask], yy[mask])
+
+# Convert minnesota geometry to a path
+minnesota_path = mpath.Path(minnesota.geometry.iloc[0].exterior.coords)
+
+# Create a mask for points inside Minnesota using the Lambert coordinates
+mask = minnesota_path.contains_points(np.column_stack((xx_lambert.flatten(), yy_lambert.flatten()))).reshape(xx.shape)
+# Apply the mask to zz
+zz_masked = np.ma.masked_where(~mask, zz)
+
+
+cont_plt = ax.contourf(xx,yy,
+                       zz_masked,
+                       levels = 10,
+                       cmap = cmap,
+                       norm=norm,
+                       transform = ccrs.PlateCarree(),
+                       alpha = 0.25,
+                       extend = 'both',
+                       zorder = 5)
+
+# # Remove contour lines
+for collection in cont_plt.collections:
+    collection.set_edgecolor("face")
+    collection.set_linewidth(0)
+
+# Add colorbar
+plt.colorbar(scatter2, label=f'Normalized {var.name}')
+
 # Add gridlines
-ax.gridlines(draw_labels=True, x_inline=False,y_inline=False)
+ax.gridlines(draw_labels=True, x_inline=False,y_inline=False,zorder=1,
+             linewidth = 1)
 
 # Set extent (adjust these values based on your data)
-ax.set_extent([df['lon'].min()-1, df['lon'].max()+1, 
-               df['lat'].min()-1, df['lat'].max()+1], crs=ccrs.PlateCarree())
-
+ax.set_extent([min_lon,max_lon, min_lat, max_lat])
 
 save_option = input("Save figure? (y/n): ").lower()
 
@@ -188,4 +257,3 @@ if save_option == 'y':
     plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
 else:
     plt.show()
-
