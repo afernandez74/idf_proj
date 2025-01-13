@@ -29,7 +29,7 @@ save_path = '../Figures/MK_trend_maps/'
 name = '01d_AMS_NOAA_Stations.csv'
 
 # minimum length of data series to analyze
-min_years = 50
+min_years = 80
 
 
 # read in AMS data
@@ -61,7 +61,7 @@ AMS = xr.DataArray(
 )
 
 # keep only the data in time range
-AMS = AMS.sel(year = slice(1950,2010))
+AMS = AMS.sel(year = slice(1900,2010))
 
 #%% Filter AMS series by minimum year and perform MK trend test
 
@@ -94,6 +94,8 @@ mk_results_ds = xr.Dataset(
 # merge dataset of results with AMS array
 AMS_filt_mk = AMS_filt.to_dataset(name = 'AMS')
 AMS_filt_mk = AMS_filt_mk.merge(mk_results_ds)
+
+res_pd = AMS_filt_mk.mean(dim = 'year').to_pandas()
 
 #%% load minnesota outline for map 
 
@@ -155,7 +157,7 @@ scatter = ax.scatter(
     cmap=cmap,
     norm=norm,
     edgecolor=plt.cm.bwr_r(norm(var)),
-    linewidth=3,
+    linewidth=2,
     alpha=1,
     zorder = 10
 )
@@ -164,14 +166,14 @@ scatter = ax.scatter(
 scatter_outlines = ax.scatter(
     AMS_mk.lon, AMS_mk.lat,
     c='none',
-    s=170,
+    s=140,
     transform=ccrs.PlateCarree(),
     # cmap=cmap,
     # norm=norm,
     edgecolor='black',
     linewidth=1,
     alpha=1,
-    zorder = 12
+    zorder = 9
 )
 
 # Create a mask for significant p-values

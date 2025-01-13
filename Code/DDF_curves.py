@@ -14,6 +14,9 @@ import seaborn as sns
 import xarray as xr
 from funcs import reproject_raster, init_lambert_proj, load_minnesota_reproj, create_dataarray
 import cartopy.feature as cfeature
+plt.rcdefaults()
+plt.style.use('seaborn-v0_8-poster')
+
 #%% specify stuff
 
 #specify SSP and period
@@ -21,11 +24,11 @@ scenario = 'ssp585'
 period = '2080-2099'
 
 # # point coordinates
-# lat = 44.8851 #N
-# lon = -93.2144 #E
-lat = 43.6064
-lon = -93.3019
+lat = 48.8947
+lon = -95.33
 
+D_max = 10
+RI_max = 100
 #%% paths
 base_path = '../Data/DDF_tif/'
 
@@ -112,7 +115,9 @@ metadata_hist=[]
 for file in files_hist_all:
     name = file[file.find('adjusted_') + 9 : file.find('.tif')]
     data_hist_temp, metadata_hist = reproject_raster(file,lambert_proj.proj4_init)
-    data_hist = create_dataarray(data_hist_temp,metadata_temp,name)
+    data_hist_da = create_dataarray(data_hist_temp,metadata_temp,name)
+    data_hist.append(data_hist_da)
+data_hist = xr.concat(data_hist,dim = 'source')
 
 # =============================================================================
 # clip data to minnesota shape 
@@ -146,19 +151,17 @@ data_loc = data_futu.sel(x=x,y=y,method='nearest')
 data_loc_hist = data_hist.sel(x=x,y=y,method='nearest')
 #%% plot DDF lines (Depth vs RI for varying durations)
 
-plt.rcParams.update({'font.size': 14})
-
-data_loc = data_futu.sel(x=x,y=y,method='nearest')
-
-plt.figure(figsize=(10, 6))
-
-xticks = np.unique(data_loc.RI.values)
+plt.figure()
 
 for duration, da in data_loc.groupby('D'):
     da = da.sortby('RI')
+    da = da.where(da['RI'] <= RI_max, drop = True)
     dat_x = da.RI.values
     dat_y = da.values
-    plt.plot(dat_x, dat_y, label = f'{duration} day')
+    if duration <= D_max:
+        plt.plot(dat_x, dat_y, label = f'{duration} day')
+
+xticks = np.unique(dat_x)
 
 plt.xscale('log')
 plt.xlabel("RI")
@@ -170,28 +173,66 @@ plt.grid()
 plt.show()
 
 #%% plot DDF lines (Depth vs Duration for varying RI)
-
-plt.rcParams.update({'font.size': 14})
-
-plt.figure(figsize=(10, 6))
-
-xticks = np.unique(data_loc.D.values)
+plt.figure()
 
 for RI, da in data_loc.groupby('RI'):
     da = da.sortby('D')
+    da = da.where(da['D'] <= D_max, drop = True)
     dat_x = da.D.values
     dat_y = da.values
-    plt.plot(dat_x, dat_y, label = f'{RI} years')
+    if RI <= RI_max:
+        plt.plot(dat_x, dat_y, label = f'{RI} years')
+
+xticks = np.unique(dat_x)
 
 plt.xscale('log')
 plt.xlabel("Duration")
 plt.xticks(xticks, labels=[str(int(tick)) for tick in xticks])
-plt.title(f'Depth vs Return Interval curves for varying durations\n Location: {lat},{lon}\n {scenario} {period}')
+plt.title(f'Depth vs Return Interval curves\n Location: {lat},{lon}\n {scenario} {period}')
 plt.ylabel("Precipitation Depth")
 plt.legend()
 plt.grid()
 plt.show()
 
+#%% plot DDF lines (Depth vs RI for 1 day) - proj vs hist comparison
+dur = 1
+
+stn = 'warroad'
+a14= pd.read_csv('../Data/A14/' + stn + '.csv').to_numpy()
+
+#filter data for the required duration
+da = data_loc.sel(source = data_loc.coords['D'] == dur)
+da_hist = data_loc_hist.sel(source = data_loc_hist.coords['D'] == dur)
+
+
+fig, ax = plt.subplots()
+
+da = da.sortby('RI')
+da = da.where(da['RI'] <= RI_max, drop = True)
+dat_x = da.RI.values
+dat_y = da.values
+ax.plot(dat_x,dat_y, label = 'proj', color = 'blue')
+
+da = da_hist.sortby('RI')
+da = da.where(da['RI'] <= RI_max, drop = True)
+dat_x = da.RI.values
+dat_y = da.values
+ax.plot(dat_x,dat_y, label = 'hist', color = 'red')
+
+ax.plot(dat_x,a14.T, label = 'A14', color = 'black')
+
+xticks = np.unique(dat_x)
+
+plt.xscale('log')
+plt.xlabel("RI")
+plt.xticks(xticks, labels=[str(int(tick)) for tick in xticks])
+title = f'Depth vs Return Interval curves for varying durations\n Location: {lat},{lon} {stn}\n {scenario} {period}\n Duration {dur:02} days'
+title = title + '\n Adjusted' if adjusted else title + '\n Unadjusted'
+plt.title(title)
+plt.ylabel("Precipitation Depth")
+plt.legend()
+plt.grid()
+plt.show()
 
 #%%# visualize location
 fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': lambert_proj})

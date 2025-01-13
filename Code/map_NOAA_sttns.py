@@ -13,6 +13,7 @@ import cartopy.feature as cfeature
 import numpy as np
 import xarray as xr
 import matplotlib.ticker as ticker
+import seaborn as sns
 plt.rcdefaults()
 plt.style.use('seaborn-v0_8-poster')
 
@@ -112,8 +113,19 @@ if save_option == 'y':
     plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
 else:
     plt.show()
+#%% spread of station lenghts
+stn_len = AMS.count(dim = 'year',keep_attrs=True).to_series()
 
+fig, ax = plt.subplots()
 
+sns.histplot(data=stn_len,
+             # kde=True, 
+             binwidth = 10, 
+             ax = ax)
+ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
+
+# stn_len.plot.hist(bins = 16, orientation = 'vertical', 
+#                   rwidth = 0.9)
 
 #%% plot all stations 
 
@@ -142,7 +154,7 @@ norm = plt.Normalize(vmin = counts.min().values,
                      vmax = counts.max().values)
 
 # Plot stations
-scatter = ax.scatter(AMS.lon, AMS.lat, c=counts, cmap='YlGnBu', 
+scatter = ax.scatter(AMS.lon, AMS.lat, c=counts, cmap='hot_r', 
                      s=70, transform=ccrs.PlateCarree(),zorder = 10,edgecolor='black',
                      linewidth=0.5)
 # Add colorbar

@@ -67,6 +67,31 @@ def reproject_raster(input_path, dst_crs):
         )
 
     return reprojected_data, metadata
+#%%
+def read_asc_to_geotiff(input_asc_path, output_tiff_path):
+    """
+    Convert an .asc file to GeoTIFF format for further processing
+
+    Parameters:
+    - input_asc_path (str): Path to the input .asc file.
+    - output_tiff_path (str): Path to save the converted GeoTIFF file.
+
+    Returns:
+    - None
+    """
+    with rasterio.open(input_asc_path) as src:
+        data = src.read(1)
+        meta = src.meta
+
+        # Ensure the driver is set to GeoTIFF
+        meta.update({
+            'driver': 'GTiff',
+            'dtype': 'float32'
+        })
+
+        with rasterio.open(output_tiff_path, 'w', **meta) as dst:
+            dst.write(data, 1)
+
 #%% Projection for mapping all MN maps
 def init_lambert_proj():
     # Lambert Conformal Conic projection 
@@ -104,7 +129,8 @@ def create_dataarray(data, metadata, name):
         period = name[name.find('_20')+1:name.find('_20')+10]
     else:
         period = name[name.find('_19')+1:name.find('_19')+10]
-    RI = int(name[name.find(period)+len(period)+1:name.find('yr')])
+        
+    RI = int(name[name.rfind('_', 0, name.find('yr')) + 1:name.find('yr')])
     D = int(name[name.find('da')-2:name.find('da')])
     # Create DataArray
     dataarray = xr.DataArray(
@@ -127,3 +153,45 @@ def create_dataarray(data, metadata, name):
     )
     
     return dataarray
+
+#%% create xarray dataarray from raster transform
+
+def create_dataarray_temp(data, metadata, name, model):
+    # Extract metadata information
+    transform = metadata['transform']
+    width = metadata['width']
+    height = metadata['height']
+    crs = metadata['crs']
+    
+    # Calculate the x and y coordinates using the affine transform
+    x_coords = np.arange(width) * transform[0] + transform[2]
+    y_coords = np.arange(height) * transform[4] + transform[5]
+    
+    source = name
+    scenario = 'historical'
+    period = '1995-2014'
+    RI = int(name[0:name.find('yr')])
+    D = int(name[name.find('yr')+2:-2])
+    # Create DataArray
+    dataarray = xr.DataArray(
+        data,
+        dims=["y", "x"],
+        coords={
+            "x": ("x", x_coords),
+            "y": ("y", y_coords),
+            "scenario": scenario,
+            "period": period,
+            "RI":RI,
+            "D":D,
+            "model":model,
+            "source":source
+
+        },
+        attrs={"crs": str(crs),
+               "transform": transform,
+               "name": name
+                }
+    )
+    
+    return dataarray
+
