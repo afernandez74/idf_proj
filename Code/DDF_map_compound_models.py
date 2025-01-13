@@ -188,12 +188,6 @@ cax = ax.contourf(ratio, transform = lambert_proj,extent = extent,
                 norm=norm,
                 )
 
-# cax2 = ax.contourf(ratio, transform = lambert_proj,extent = extent,
-#                 colors='gold', origin='upper',
-#                 levels = [np.min(ratio),1.0],
-#                 norm=norm,
-#                 )
-
 ax.set_extent([min_lon,max_lon, min_lat, max_lat])
 
 # Add a colorbar with label

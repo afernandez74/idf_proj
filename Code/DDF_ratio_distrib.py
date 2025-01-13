@@ -43,11 +43,7 @@ path_hist = path + 'historical/1995-2014/'
 
 files_hist_all = [path_hist + file for file in os.listdir(path_hist) if not file.startswith('.')]
 
-#%%
-# ==============================================================================
-# Pick future scenario  - instead of choosing, calculate them all and plot violins of each
-# so 9 violins per plot
-# =============================================================================
+#%% paths for all files 
 
 scenarios = [file for file in os.listdir(path) if not file.startswith('.') and not file.startswith('historical')]
 
@@ -69,7 +65,8 @@ for path in paths_all:
 
 files_all = [item for row in files_all for item in row]
 
-del files_temp, paths_temp, files, paths_all, paths_scenarios
+del files_temp, paths_temp, files, paths_all, paths_scenarios, path
+
 #%% filter paths for correct files
         
 #sufix for specified return interval and duration
