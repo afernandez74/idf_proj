@@ -26,10 +26,10 @@ path = '../Data/AMS_NOAA/'
 save_path = '../Figures/MK_trend_maps/'
 
 # name of file to read
-name = '01d_AMS_NOAA_Stations.csv'
+name = '07d_AMS_NOAA_Stations.csv'
 
 # minimum length of data series to analyze
-min_years = 80
+min_years = 100
 
 
 # read in AMS data
@@ -129,7 +129,7 @@ sig = 0.05
 # Create figure and axis
 fig, ax = plt.subplots(subplot_kw={'projection': lambert_proj})
 
-plt.title(name[:-4]+' MK trend test')
+plt.title(name[:-4]+f' MK trend test min {min_years}yrs')
 
 # draw political boundaries 
 ax.add_feature(cfeature.BORDERS, linewidth=0.5)
@@ -259,3 +259,9 @@ if save_option == 'y':
     plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
 else:
     plt.show()
+
+#%% print summary of reuslts
+N = AMS_mk['id'].count().values
+signif_N = (AMS_mk['trend']=='increasing').sum()
+signif_percent = signif_N/N*100
+print(f'{int(signif_percent)}% of {N} stations with significant trend')

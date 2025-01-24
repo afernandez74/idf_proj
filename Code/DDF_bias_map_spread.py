@@ -18,10 +18,10 @@ plt.style.use('seaborn-v0_8-poster')
 clip_MN = True #if true, raster data clipped to MN 
 
 # return interval (years)
-RI = 25
+RI = 2
 
 # Duration (days)
-D = 7
+D = 1
 
 #save path results
 save_path = '../Figures/Bias/'
@@ -98,7 +98,7 @@ base_path = '../Data/A14_raster/'
 # obtain path to NA14 file
 files = [file for file in os.listdir(base_path) if not file.startswith('.')]
 
-file = [file for file in files if f'{RI}yr' in file and f'{D:02}da' in file]
+file = [file for file in files if f'mw{RI}yr' in file and f'{D:02}da' in file]
 
 file = [file for file in file if file.endswith('.asc')]
 
@@ -212,16 +212,16 @@ for idx in range(len(data_hist['source'])):
     da_i = data_hist.isel(source=idx)
 
     # Perform the percent change calculation (avoid division by zero by masking NaNs)
-    bias_i = (da_i / NA14)
+    bias_i = (da_i / NA14.values)
     
     # Assign the calculated percent change to the corresponding location in the 'change' DataArray
     bias.loc[dict(source=data_hist.source[idx])] = bias_i
 #%% plot map of bias per model
 
 # Define shared normalization and levels for the colorbar
-vmin, vmax = 0, 3  # Set minimum and maximum values for normalization
+vmin, vmax = 0, 2  # Set minimum and maximum values for normalization
 norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter = 1.0, vmax=vmax)
-levels = np.linspace(vmin, vmax, 11)  # Define 11 levels between vmin and vmax
+levels = np.linspace(vmin, vmax, 10)  # Define 11 levels between vmin and vmax
 
 fig, ax = plt.subplots(nrows=2, ncols=3,subplot_kw={'projection': lambert_proj})
 ax = ax.flatten()
@@ -266,20 +266,6 @@ for idx, source in enumerate(bias['source']):
     # Contour map
     # =============================================================================
     
-    # levels for contours:
-    # if np.nanmax(change_mean) >100:
-    #     levels = np.concatenate([
-    #         np.linspace(-50, 0, 2, endpoint = False),
-    #         np.linspace(0, 100, 4, endpoint = False),
-    #         np.linspace(100, np.nanmax(change_mean), 2)
-    #         ])
-    # else:
-    #     levels = np.concatenate([
-    #         np.linspace(-50, 0, 2, endpoint = False),
-    #         np.linspace(0, 100, 4, endpoint = False)])
-    
-    #normalize values 
-    # norm = plt.Normalize(vmin=-75, vmax = 75)
     
     cax = ax_i.contourf(bias_i, 
                     transform = lambert_proj,
@@ -295,7 +281,7 @@ for idx, source in enumerate(bias['source']):
 # Add a colorbar with label
 cbar = fig.colorbar(cax, ax=ax, orientation='horizontal', fraction = 0.05, pad = 0.1, 
              label='Bias')
-cbar.set_ticks(np.linspace(vmin, vmax, 7)) 
+cbar.set_ticks(np.linspace(vmin, vmax, 5)) 
     
     # Add gridlines
     # ax_i.gridlines(draw_labels=True, x_inline=False,y_inline=False)
@@ -311,7 +297,82 @@ if save_option == 'y':
     plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
 else:
     plt.show()
+#%% plot map of mean bias across all models
 
+bias_mean = bias.mean(dim = 'source')
+
+
+# Define shared normalization and levels for the colorbar
+vmin, vmax = 0, 2  # Set minimum and maximum values for normalization
+norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter = 1.0, vmax=vmax)
+levels = np.linspace(vmin, vmax, 10)  # Define 11 levels between vmin and vmax
+
+fig, ax = plt.subplots(subplot_kw={'projection': lambert_proj})
+
+
+# Set titles and labels
+ax.set_title(f'Mean bias across all models\nfor {RI}yr {D:02}day Event')
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+
+# Draw political boundaries and other features, matching the Lambert Conformal projection
+ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor='gray')
+ax.add_feature(cfeature.STATES, linewidth=0.5, edgecolor='gray')
+ax.add_feature(cfeature.RIVERS, linestyle='--', color='lightblue', linewidth=0.4, zorder=1)
+ax.add_feature(cfeature.LAKES, linestyle='--', color='lightblue', linewidth=0.4, zorder=1)
+
+# Plot the Minnesota boundary on the Lambert Conformal map
+minnesota.boundary.plot(ax=ax, color='black', linewidth=1.5)
+
+extent = [
+    metadata['transform'][2],
+    metadata['transform'][2] + metadata['transform'][0] * metadata['width'],
+    metadata['transform'][5] + metadata['transform'][4] * metadata['height'],
+    metadata['transform'][5]
+]
+
+#transformer for custom extent values
+transformer = pyproj.Transformer.from_crs(metadata['crs'], lambert_proj.proj4_init, always_xy=True)
+
+# latitudes and longitudes for map extent
+min_lon, min_lat = -97.94, 42.54
+max_lon, max_lat = -88.69, 49.97
+
+# =============================================================================
+# Contour map
+# =============================================================================
+
+
+cax = ax.contourf(bias_mean, 
+                transform = lambert_proj,
+                extent = extent,
+                cmap='bwr_r', 
+                origin='upper',
+                levels = levels,
+                norm=norm,
+                )
+
+ax.set_extent([min_lon,max_lon, min_lat, max_lat])
+    
+# Add a colorbar with label
+cbar = fig.colorbar(cax, ax=ax, orientation='horizontal', fraction = 0.05, pad = 0.1, 
+             label='Bias')
+cbar.set_ticks(np.linspace(vmin, vmax, 5)) 
+    
+    # Add gridlines
+    # ax_i.gridlines(draw_labels=True, x_inline=False,y_inline=False)
+
+save_option = input("Save figure? (y/n): ").lower()
+
+if save_option == 'y':
+    save_path_name = save_path + 'Mean_bias_map_'+f'{RI}yr_{D}da'
+    save_path_name = save_path_name + '_MNclip' if clip_MN else save_path_name
+    # Save as SVG
+    plt.savefig(save_path_name +'.svg', format='svg', dpi=300, bbox_inches='tight')
+    # Save as PNG
+    plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
+else:
+    plt.show()
 #%% Plot spread of bias 
 # Create an empty list to store the data for plotting
 bias_spreads = []
@@ -326,16 +387,18 @@ bias_spreads = pd.concat(bias_spreads, axis=1)
 # %% Plot the violin plot
 plt.figure()
 # Create the violin plot using seaborn
-sns.violinplot(data=bias_spreads, 
-               inner='quart', 
+sns.boxplot(data=bias_spreads, 
+               # inner='quart', 
                palette="bright", 
-               scale = 'width',
-               linewidth = 2.0
+               # scale = 'width',
+               linewidth = 2.0,
+               showfliers = False
                )
 
 plt.title(f'Bias spread per model {RI}yr {D}da')
 plt.xticks(rotation=45)
-plt.ylim(-0,3)
+plt.ylim(-0,2
+         )
 plt.grid(linewidth = 0.5,linestyle = '--')
 plt.axhline(1.0, color = 'black', linewidth = 1.0, linestyle = '--')
 
