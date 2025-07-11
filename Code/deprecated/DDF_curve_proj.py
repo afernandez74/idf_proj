@@ -120,7 +120,7 @@ for pathy in path_hist_models:
 
 paths_all_hist = [item for row in paths_all_hist for item in row]
 
-#%%#%% load minnesota outline and projection for maps
+# load minnesota outline and projection for maps
 lambert_proj = init_lambert_proj()
 minnesota = load_minnesota_reproj(lambert_proj)
 #%% open raster files and reproject

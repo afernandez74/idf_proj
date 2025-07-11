@@ -13,21 +13,26 @@ from funcs import reproject_raster, init_lambert_proj, load_minnesota_reproj, cr
 plt.rcdefaults()
 plt.style.use('seaborn-v0_8-poster')
 
+# calculates model-specific bias ratio compared to NA14
+
 #%% specify return interval and duration for analysis
 
 clip_MN = True #if true, raster data clipped to MN 
 
 # Duration (days)
-D = 1
+D = 4
 
 #save path results
 save_path = '../Figures/Bias/'
 save_path = save_path + 'clip_MN/' if clip_MN else save_path + 'whole/'
 
+# =============================================================================
 # load minnesota outline and projection for maps
-lambert_proj = init_lambert_proj()
-minnesota = load_minnesota_reproj(lambert_proj)
+# =============================================================================
 
+lambert_proj = init_lambert_proj()
+shape_path = "/Users/afer/idf_cmip6_local/idf_repo/Data/tl_2022_us_state.zip"
+minnesota = load_minnesota_reproj(lambert_proj,shape_path)
 
 #%% paths for CMIP6 projections
 base_path = '../Data/DDF_individual_model_tif/'

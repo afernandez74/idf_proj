@@ -19,11 +19,42 @@ plt.style.use('seaborn-v0_8-poster')
 
 #%% specify stuff
 
-# # point coordinates
-# lat = 44.8851 #N
-# lon = -93.2144 #E
-lat = 44.5
-lon = -93.5
+sites = ['MSP',
+         'CLOQUET',
+         'MANKATO',
+         'BRAINERD',
+         'BEMIDJI',
+         'ROCHESTER_INTL_AP',
+         'CROOKSTON_NW',
+         'ST_CLOUD'
+         ]
+
+lat_lons = [
+            [44.8831, -93.2289],
+            [46.8369, -92.1833],
+            [44.1542, -94.0211],
+            [46.3433, -94.2100],
+            [47.5369, -94.8297],
+            [43.9042, -92.4917],
+            [47.8014, -96.6028],
+            [45.5433, -94.0514]
+            ]
+print('Sites:')
+for i, item in enumerate (sites):
+    print(f'{i}:    {item}')
+
+while True:
+    try:
+        ix = int(input("Enter the number of the site: "))
+        if 0 <= ix <= len(sites):
+            break
+        else:
+            print(f"Please enter a number between 0 and {len(sites)-1}.")
+    except ValueError:
+        print("Please enter a valid number.")
+
+site = sites[ix]
+lat,lon = lat_lons[ix]
 
 D_max = 10
 RI_max = 100
@@ -50,9 +81,10 @@ for path in path_models:
 paths_all = [item for row in paths_all for item in row]
 
 del path,path_models
-#%%#%% load minnesota outline and projection for maps
+
 lambert_proj = init_lambert_proj()
-minnesota = load_minnesota_reproj(lambert_proj)
+shape_path = "/Users/afer/idf_cmip6_local/idf_repo/Data/tl_2022_us_state.zip"
+minnesota = load_minnesota_reproj(lambert_proj,shape_path)
 
 #%% open raster files and reproject
 
@@ -98,7 +130,7 @@ transformer = Transformer.from_crs(wgs84_crs, data_crs,always_xy=True)
 x,y = transformer.transform(lon,lat)
 
 #%% data arrays for hist and projections
-data_loc = data_futu.sel(x=x,y=y,method='nearest')
+data_loc = data_futu.sel(x=x,y=y,method='nearest') * 25.4 # change to mm
 
 #%% plot DDF lines (Depth vs RI for varying durations)
 
@@ -107,7 +139,7 @@ cmap = plt.get_cmap('jet', len(models)+1)
 colors = [cmap(i) for i in range(len(models))]
 dur = 1
 stn = 'AGU'
-a14= pd.read_csv('../Data/A14/'+stn+'.csv').to_numpy()
+a14= pd.read_csv('../Data/A14/'+stn+'.csv').to_numpy() * 25.4
 
 fig,ax = plt.subplots()
 
@@ -139,7 +171,7 @@ plt.show()
 
 dur = 1
 stn = 'AGU'
-a14= pd.read_csv('../Data/A14/'+stn+'.csv').to_numpy()
+a14= pd.read_csv('../Data/A14/'+stn+'.csv').to_numpy()* 25.4
 
 fig,ax = plt.subplots()
 

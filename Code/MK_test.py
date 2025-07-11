@@ -5,15 +5,10 @@ import xarray as xr
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
-from matplotlib.collections import PatchCollection
-from matplotlib.patches import Circle
-import matplotlib.colors as mcolors
 import matplotlib.path as mpath
 from scipy.interpolate import griddata, NearestNDInterpolator
-from geodatasets import get_path
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-import os
 from funcs import mk_test
 plt.rcdefaults()
 plt.style.use('seaborn-v0_8-poster')

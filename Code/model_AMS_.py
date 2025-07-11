@@ -124,6 +124,7 @@ plt.title(title)
 plt.tight_layout()  # Adjust layout to fit the legend
 
 # Show the plot
+
 plt.show()
 
 #%% gridcell point spread

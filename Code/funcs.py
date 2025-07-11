@@ -5,6 +5,8 @@ import cartopy.crs as ccrs
 import geopandas as gpd
 import xarray as xr
 import pymannkendall as mk
+import cartopy.io.shapereader as shpreader
+from pathlib import Path
 #%% mann kendall trend test function
 def mk_test(series):
     
@@ -104,12 +106,23 @@ def init_lambert_proj():
 
 #%% load Minnesota outline
 # Minnesota outline
-def load_minnesota_reproj(lambert_proj):
-    url = "https://www2.census.gov/geo/tiger/TIGER2022/STATE/tl_2022_us_state.zip"
-    usa = gpd.read_file(url)
-    minnesota = usa[usa['NAME'] == 'Minnesota']
-    minnesota = minnesota.to_crs(lambert_proj.proj4_init)
-    return minnesota
+def load_minnesota_reproj(lambert_proj,shp_path):
+    # url = "https://www2.census.gov/geo/tiger/TIGER2022/STATE/tl_2022_us_state.zip"
+    # usa = gpd.read_file(url)
+    # minnesota = usa[usa['NAME'] == 'Minnesota']
+    # minnesota = minnesota.to_crs(lambert_proj.proj4_init)
+    # return minnesota
+    
+    shp_path = Path(shp_path).expanduser()
+    if shp_path.suffix.lower() == ".zip":
+        # GeoPandas can read directly from a ZIP without extraction
+        states = gpd.read_file(f"zip://{shp_path}")
+    else:
+        # Folder or .shp → just read it
+        states = gpd.read_file(shp_path)    
+    minnesota = states[states["NAME"].str.contains("Minnesota", case=False)]
+    return minnesota.to_crs(lambert_proj.proj4_init)
+    
 #%% create xarray dataarray from raster transform
 
 def create_dataarray(data, metadata, name):

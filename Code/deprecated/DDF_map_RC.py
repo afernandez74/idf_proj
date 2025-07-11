@@ -1,8 +1,8 @@
 import numpy as np
 import rasterio
-import geopandas as gpd
 import xarray as xr
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from rasterio.features import geometry_mask
 import pyproj 
 import cartopy.crs as ccrs
@@ -22,13 +22,13 @@ base_path = '../Data/DDF_individual_model_tif/'
 clip_MN = True #if true, raster data clipped to MN 
 
 # return interval [years]
-RI = 100
+RI = 2
 
 #duration [days]
 D = 1
 
 #save path results
-save_path = '../Figures/DDF_maps_single_model/'
+save_path = '../Figures/RC_proj/mean_model_RC_map/'
 save_path = save_path + 'clip_MN/' if clip_MN else save_path + 'whole/'
 
 # =============================================================================
@@ -124,10 +124,11 @@ paths_all_hist = [item for row in paths_all_hist for item in row]
 paths_all_hist = [file for file in paths_all_hist if f'{D:02}da' in file and f'{RI}yr' in file]
 
 del path_models, pathy, paths_temp, files, i
-#%%#%% load minnesota outline and projection for maps
-
+# load minnesota outline and projection for maps
+#%%
 lambert_proj = init_lambert_proj()
-minnesota = load_minnesota_reproj(lambert_proj)
+shape_path = "/Users/afer/idf_cmip6_local/idf_repo/Data/tl_2022_us_state.zip"
+minnesota = load_minnesota_reproj(lambert_proj,shape_path)
 
 #%% open raster files and reproject
 
@@ -199,9 +200,13 @@ for idx in range(len(data_futu['source'])):
     # Assign the calculated percent change to the corresponding location in the 'change' DataArray
     change.loc[dict(source=data_futu.source[idx])] = percent_change
 
+# get rid of BCC model if ssp370
+if scenarios[ix] == 'ssp370':
+    change = change.where(change['model'] != 'BCC-CSM2-MR', drop = True)
 change_mean = change.mean(dim = 'source',skipna=True)
 
-#%% plot change of futu/hist for chosen data / duration / return interval combo (mean of all models)
+#%% plot change of futu/hist for chosen data / duration / return interval combo
+# (mean of all models)
 
 # Set up the figure and axis with Lambert Conformal projection
 fig, ax = plt.subplots(subplot_kw={'projection': lambert_proj})
@@ -241,20 +246,21 @@ max_lon, max_lat = -88.69, 49.97
 # levels for contours:
 if np.nanmax(change_mean) >100:
     levels = np.concatenate([
-        np.linspace(-50, 0, 2, endpoint = False),
-        np.linspace(0, 100, 4, endpoint = False),
+        np.linspace(-60, 0, 3, endpoint = False),
+        np.linspace(0, 100, 5, endpoint = False),
         np.linspace(100, np.nanmax(change_mean), 2)
         ])
 else:
     levels = np.concatenate([
-        np.linspace(-50, 0, 2, endpoint = False),
-        np.linspace(0, 100, 4, endpoint = False)])
+        np.linspace(-60, 0, 3, endpoint = False),
+        np.linspace(0, 100, 5, endpoint = False)])
 
 #normalize values 
 norm = plt.Normalize(vmin=-75, vmax = 75)
+cmap = plt.get_cmap('RdYlBu')
 
 cax = ax.contourf(change_mean, transform = lambert_proj,extent = extent,
-                cmap='RdYlBu', origin='upper',
+                cmap=cmap, origin='upper',
                 levels = levels,
                 norm=norm,
                 )
@@ -264,15 +270,16 @@ ax.set_extent([min_lon,max_lon, min_lat, max_lat])
 # Add a colorbar with label
 plt.colorbar(cax, ax=ax, orientation='vertical', label='% Change')
 
-# # Calculate statistics for display once
-# mean_change= np.nanmean(change)
-# max_change = np.nanmax(change)
-# min_change= np.nanmin(change)
+# Calculate statistics for display once
+mean_change= np.nanmean(change_mean)
+std_change = np.nanstd(change_mean)
+max_change = np.nanmax(change_mean)
+min_change= np.nanmin(change_mean)
 
-# # Add statistical information as text in a white box
-# stats_text = f'Mean: {mean_change:.2f}x\nMax: {max_change:.2f}x\nMin: {min_change:.2f}x'
-# props = dict(boxstyle='round', facecolor='white', alpha=0.8)
-# ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment='top', bbox=props)
+# Add statistical information as text in a white box
+stats_text = f'Mean: {mean_change:.2f}%\nStd: {std_change:.2f}%'
+props = dict(boxstyle='round', facecolor='white', alpha=0.8)
+ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment='top', bbox=props)
 
 # Add gridlines
 ax.gridlines(draw_labels=True, x_inline=False,y_inline=False)
@@ -280,8 +287,7 @@ ax.gridlines(draw_labels=True, x_inline=False,y_inline=False)
 save_option = input("Save figure? (y/n): ").lower()
 
 if save_option == 'y':
-    save_path_name = save_path+'DDF_change_'+f'{scenarios[ix]}_{periods[ix2]}_{RI}yr_{D}da'
-    save_path_name = save_path_name + '_MNclip' if clip_MN else save_path_name
+    save_path_name = save_path + 'map_RC_'+f'{scenarios[ix]}_{periods[ix2]}_{RI}yr_{D}da'
     # Save as SVG
     plt.savefig(save_path_name +'.svg', format='svg', dpi=300, bbox_inches='tight')
     # Save as PNG
@@ -289,7 +295,39 @@ if save_option == 'y':
 else:
     plt.show()
     
-#%% plot change of futu/hist for chosen data / duration / return interval combo (single model grid)
+#%% histogram
+# Flatten data and remove NaNs for histogram
+valid_data = change_mean.values.flatten()
+valid_data = valid_data[~np.isnan(valid_data)]
+
+# Create histogram figure
+fig_hist, ax_hist = plt.subplots()
+
+# Plot histogram
+n, bins, patches = ax_hist.hist(valid_data, bins=levels, edgecolor='black', align='mid')
+
+# Apply colors to bars
+for patch, level in zip(patches, levels[:-1]):
+    patch.set_facecolor(cmap(norm(level)))
+
+# Set labels
+ax_hist.set_xlabel('% Change')
+ax_hist.set_ylabel('Frequency')
+ax_hist.set_title('Histogram of Event Depth Change')
+
+save_option = input("Save histogram? (y/n): ").lower()
+
+if save_option == 'y':
+    save_path_name = save_path + 'hist_RC_'+f'{scenarios[ix]}_{periods[ix2]}_{RI}yr_{D}da'
+    # Save as SVG
+    plt.savefig(save_path_name +'.svg', format='svg', dpi=300, bbox_inches='tight')
+    # Save as PNG
+    plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
+else:
+    plt.show()
+
+#%% plot change of futu/hist for chosen data / duration / return interval combo 
+#(single model grid)
 
 # Set up the figure and axis with Lambert Conformal projection
 fig, ax = plt.subplots(nrows=2, ncols=3,subplot_kw={'projection': lambert_proj})
@@ -298,6 +336,7 @@ ax = ax.flatten()
 # Add a title for the entire figure
 fig.suptitle(f'Projceted change from historical to {periods[ix2]}\n{RI}-year event, {D}-day duration, {scenarios[ix]} Scenario',fontsize = 20)
 
+change = change.sortby('model')
 for idx, source in enumerate(change['source']):
     ax_j = ax[idx]
     
@@ -336,15 +375,15 @@ for idx, source in enumerate(change['source']):
     # levels for contours:
     if np.nanmax(change_j) >100:
         levels = np.concatenate([
-            np.linspace(-50, 0, 2, endpoint = False),
-            np.linspace(0, 100, 4, endpoint = False),
+            np.linspace(-60, 0, 3, endpoint = False),
+            np.linspace(0, 100, 5, endpoint = False),
             np.linspace(100, np.nanmax(change_j), 2)
             ])
     else:
         levels = np.concatenate([
-            np.linspace(-50, 0, 2, endpoint = False),
-            np.linspace(0, 100, 4, endpoint = False)])
-    
+            np.linspace(-60, 0, 3, endpoint = False),
+            np.linspace(0, 100, 5, endpoint = False)])
+            
     #normalize values 
     norm = plt.Normalize(vmin=-75, vmax = 75)
     
@@ -361,11 +400,12 @@ for idx, source in enumerate(change['source']):
     
     # Calculate statistics for display once
     mean_change= np.nanmean(change_j)
+    std_change = np.nanstd(change_j)
     max_change = np.nanmax(change_j)
     min_change= np.nanmin(change_j)
     
     # Add statistical information as text in a white box
-    stats_text = f'Mean: {mean_change:.2f}x\nMax: {max_change:.2f}x\nMin: {min_change:.2f}x'
+    stats_text = f'Mean: {mean_change:.2f}%\nStd: {std_change:.2f}%'
     props = dict(boxstyle='round', facecolor='white', alpha=0.8)
     ax_j.text(0.02, 0.98, stats_text, transform=ax_j.transAxes, verticalalignment='top', bbox=props)
     
@@ -373,10 +413,11 @@ for idx, source in enumerate(change['source']):
     # ax_j.gridlines(draw_labels=True, x_inline=False,y_inline=False)
 
 save_option = input("Save figure? (y/n): ").lower()
+save_path = '../Figures/RC_proj/single_model_RC_map/'
+save_path = save_path + 'clip_MN/' if clip_MN else save_path + 'whole/'
 
 if save_option == 'y':
-    save_path_name = save_path+'DDF_change_'+f'{scenarios[ix]}_{periods[ix2]}_{RI}yr_{D}da_indiv_mods'
-    save_path_name = save_path_name + '_MNclip' if clip_MN else save_path_name
+    save_path_name = save_path + 'map_RC_'+f'{scenarios[ix]}_{periods[ix2]}_{RI}yr_{D}da'
     # Save as SVG
     plt.savefig(save_path_name +'.svg', format='svg', dpi=300, bbox_inches='tight')
     # Save as PNG
