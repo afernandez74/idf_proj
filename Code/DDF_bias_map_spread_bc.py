@@ -18,7 +18,7 @@ plt.style.use('seaborn-v0_8-poster')
 clip_MN = True #if true, raster data clipped to MN 
 
 # return interval (years)
-RI = 100
+RI = 10
 
 # Duration (days)
 D = 1
@@ -29,7 +29,7 @@ D = 1
 #             'Huidobro',
 #             'Adjusted Liess'
 #]
-bc_source = 'PRISM'
+bc_source = 'Adjusted Liess'
 
 
 #save path results

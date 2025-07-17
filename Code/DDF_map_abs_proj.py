@@ -25,7 +25,7 @@ base_path = '../Data/DDF_tif_bc_25/'
 clip_MN = True #if true, raster data clipped to MN 
 
 # return interval [years]
-RI = 25
+RI = 2
 
 #duration [days]
 D = 1

@@ -10,6 +10,8 @@ import pyproj
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import os
+import seaborn as sns
+from scipy.stats import mannwhitneyu
 from funcs import reproject_raster, init_lambert_proj, load_minnesota_reproj, create_dataarray
 plt.rcdefaults()
 plt.style.use('seaborn-v0_8-poster')
@@ -23,10 +25,10 @@ base_path = '../Data/DDF_tif_bc_25/'
 clip_MN = True #if true, raster data clipped to MN 
 
 # return interval [years]
-RI = 50
+RI = 100
 
 #duration [days]
-D = 7
+D = 10
 
 # =============================================================================
 # Set paths
@@ -122,6 +124,7 @@ while True:
         print("Please enter a valid number.")
 
 bc_source = bc_sources[ix3]
+
 # =============================================================================
 # Get all paths to future files
 # =============================================================================
@@ -242,6 +245,7 @@ del masky,threshold_upper,threshold_lower,mad,median,subset
 #%% Calculate the change between future and historical data 
 change = data_futu.copy()
 abs_change = data_futu.copy()
+abs_proj = data_futu.copy()
 for idx in range(len(data_futu['source'])):
     # Get the model corresponding to the current index
     model_str = str(data_futu['model'].values[idx])
@@ -253,241 +257,66 @@ for idx in range(len(data_futu['source'])):
     # Perform the percent change calculation (avoid division by zero by masking NaNs)
     percent_change = ((da2_model / da1_model)-1)*100
     subtraction = da2_model - da1_model
-    
+    tot_proj = da2_model
     # Assign the calculated percent change to the corresponding location in the 'change' DataArray
     change.loc[dict(source=data_futu.source[idx])] = percent_change
     # Assign the calculated difference to the corresponding location in the 'change' DataArray
     abs_change.loc[dict(source=data_futu.source[idx])] = subtraction
-    
-# # get rid of BCC model if ssp370
-# if scenarios[ix] == 'ssp370':
-#     change = change.where(change['model'] != 'BCC-CSM2-MR', drop = True)
-#     abs_change = abs_change.where(abs_change['model'] != 'BCC-CSM2-MR', drop = True)
+    abs_proj.loc[dict(source=data_futu.source[idx])] = tot_proj
 
 # calculate multi-model mean of relative change percent
 change_mean = change.mean(dim = 'source',skipna=True)
 abs_change_mean = abs_change.mean(dim = 'source', skipna = True)
-#%% plot change of futu/hist for chosen data / duration / return interval combo
-# (mean of all models)
+abs_change_mean = abs_change_mean * 25.4 # change to mm
 
-# Set up the figure and axis with Lambert Conformal projection
-fig, ax = plt.subplots(subplot_kw={'projection': lambert_proj})
+#%% Calculate projected means and historical means and return values as MMI and MAC
+abs_proj_mean = abs_proj.mean(dim = 'source',skipna=True)
+abs_proj_mean = abs_proj_mean * 25.4 / D # change to mm/da
 
-# Set titles and labels
-ax.set_title(f'Event depth change from historical to {periods[ix2]}\n{RI}-year event, {D}-day duration, {scenarios[ix]} Scenario')
-ax.set_xlabel('Longitude')
-ax.set_ylabel('Latitude')
-
-# Draw political boundaries and other features, matching the Lambert Conformal projection
-ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor='gray')
-ax.add_feature(cfeature.STATES, linewidth=0.5, edgecolor='gray')
-ax.add_feature(cfeature.RIVERS, linestyle='--', color='lightblue', linewidth=0.4, zorder=1)
-ax.add_feature(cfeature.LAKES, linestyle='--', color='lightblue', linewidth=0.4, zorder=1)
-
-# Plot the Minnesota boundary on the Lambert Conformal map
-minnesota.boundary.plot(ax=ax, color='black', linewidth=1.5)
-
-extent = [
-    metadata['transform'][2],
-    metadata['transform'][2] + metadata['transform'][0] * metadata['width'],
-    metadata['transform'][5] + metadata['transform'][4] * metadata['height'],
-    metadata['transform'][5]
-]
-
-#transformer for custom extent values
-transformer = pyproj.Transformer.from_crs(metadata['crs'], lambert_proj.proj4_init, always_xy=True)
-
-# latitudes and longitudes for map extent
-min_lon, min_lat = -97.94, 42.54
-max_lon, max_lat = -88.69, 49.97
-
-# =============================================================================
-# Contour map
-# =============================================================================
-
-# levels for contours:
-if np.nanmax(change_mean) >100:
-    levels = np.concatenate([
-        np.linspace(-60, 0, 3, endpoint = False),
-        np.linspace(0, 100, 5, endpoint = False),
-        np.linspace(100, np.nanmax(change_mean), 2)
-        ])
-else:
-    levels = np.concatenate([
-        np.linspace(-60, 0, 3, endpoint = False),
-        np.linspace(0, 100, 5, endpoint = False)])
-
-#normalize values 
-norm = plt.Normalize(vmin=-75, vmax = 75)
-cmap = plt.get_cmap('RdYlBu')
-
-cax = ax.contourf(change_mean, transform = lambert_proj,extent = extent,
-                cmap=cmap, origin='upper',
-                levels = levels,
-                norm=norm,
-                )
-
-ax.set_extent([min_lon,max_lon, min_lat, max_lat])
-
-# Add a colorbar with label
-plt.colorbar(cax, ax=ax, orientation='vertical', label='% Change')
+abs_hist_mean = data_hist.mean(dim='source',skipna=True)
+abs_hist_mean = abs_hist_mean * 25.4 / D#change to mm/da
 
 # Calculate statistics for display once
-mean_change= np.nanmean(change_mean)
-std_change = np.std(change_mean)
-max_change = np.nanmax(change_mean)
-min_change= np.nanmin(change_mean)
+mean_change= np.nanmean(abs_hist_mean)
+std_change = np.std(abs_hist_mean)
+max_change = np.nanmax(abs_hist_mean)
+min_change= np.nanmin(abs_hist_mean)
 
-# Add statistical information as text in a white box
-stats_text = f'Mean: {mean_change:.2f}%\nStd: {std_change:.2f}%'
-props = dict(boxstyle='round', facecolor='white', alpha=0.8)
-ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment='top', bbox=props)
+# Flatten and clean the data
+hist_vals = abs_hist_mean.values.flatten()
+proj_vals = abs_proj_mean.values.flatten()
 
-# Add gridlines
-ax.gridlines(draw_labels=True, x_inline=False,y_inline=False)
+# Mask invalid or non-positive values
+mask = ~np.isnan(hist_vals) & ~np.isnan(proj_vals) & (hist_vals > 0)
+hist_vals = hist_vals[mask]
+proj_vals = proj_vals[mask]
 
+# Mann–Whitney U test
+u_stat, p_value = mannwhitneyu(proj_vals, hist_vals, alternative='greater')
+# print(f"M-U p-val: {p_value}")
 
-#save path results
-save_path = '../Figures/RC_proj/mean_model_RC_map/'
-save_path = save_path + 'clip_MN/' if clip_MN else save_path + 'whole/'
+# Relative (multiplicative) change
+log_ratio = np.log(proj_vals / hist_vals)
+log_ratio = log_ratio[np.isfinite(log_ratio)]
+mult_increase = np.exp(log_ratio)
 
-save_option = input("Save figure? (y/n): ").lower()
+median_mult = np.median(mult_increase)
+percent_increase = (median_mult - 1) * 100
+lower_q_mult = np.percentile(mult_increase, 25)
+upper_q_mult = np.percentile(mult_increase, 75)
+iqr_percent = ((lower_q_mult - 1) * 100, (upper_q_mult - 1) * 100)
 
-if save_option == 'y':
-    save_path_name = save_path + 'map_RC_bc_'+bc_source+f'_{scenarios[ix]}_{periods[ix2]}_{RI}yr_{D}da'
-    # Save as SVG
-    plt.savefig(save_path_name +'.svg', format='svg', dpi=300, bbox_inches='tight')
-    # Save as PNG
-    plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
-else:
-    plt.show()
-    
-#%% histogram
-# Flatten data and remove NaNs for histogram
-valid_data = change_mean.values.flatten()
-valid_data = valid_data[~np.isnan(valid_data)]
+# Absolute change
+abs_change = proj_vals - hist_vals
+median_abs = np.median(abs_change)
+lower_q_abs = np.percentile(abs_change, 25)
+upper_q_abs = np.percentile(abs_change, 75)
 
-# Create histogram figure
-fig_hist, ax_hist = plt.subplots()
+# Console output
+print(f"\n\nChange from historical to {period} in {RI}-year, {D}-day events for {scenario}:")
+print(f"\nMMI (%):  \n{percent_increase:.1f} ({iqr_percent[0]:.1f} - {iqr_percent[1]:.1f})\n")
+# print(f"IQR (percent): {iqr_percent[0]:.1f}% – {iqr_percent[1]:.1f}%\n")
 
-# Plot histogram
-n, bins, patches = ax_hist.hist(valid_data, bins=levels, edgecolor='black', align='mid')
+print(f"\nMAC (mm/day): \n{median_abs:.1f} ({lower_q_abs:.1f} - {upper_q_abs:.1f})")
+# print(f"IQR (absolute): {lower_q_abs:.1f} – {upper_q_abs:.1f} mm")
 
-# Apply colors to bars
-for patch, level in zip(patches, levels[:-1]):
-    patch.set_facecolor(cmap(norm(level)))
-
-# Set labels
-ax_hist.set_xlabel('% Change')
-ax_hist.set_ylabel('Frequency')
-ax_hist.set_title('Histogram of Event Depth Change')
-
-save_option = input("Save histogram? (y/n): ").lower()
-
-if save_option == 'y':
-    save_path_name = save_path + 'hist_RC_bc_'+bc_source+f'_{scenarios[ix]}_{periods[ix2]}_{RI}yr_{D}da'
-    # Save as SVG
-    plt.savefig(save_path_name +'.svg', format='svg', dpi=300, bbox_inches='tight')
-    # Save as PNG
-    plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
-else:
-    plt.show()
-
-#%% plot change of futu/hist for chosen data / duration / return interval combo 
-#(single model grid)
-
-# Set up the figure and axis with Lambert Conformal projection
-fig, ax = plt.subplots(nrows=2, ncols=3,subplot_kw={'projection': lambert_proj})
-ax = ax.flatten()
-
-# Add a title for the entire figure
-fig.suptitle(f'Projceted change from historical to {periods[ix2]}\n{RI}-year event, {D}-day duration, {scenarios[ix]} Scenario',fontsize = 20)
-
-change = change.sortby('model')
-
-for idx, source in enumerate(change['source']):
-    ax_j = ax[idx]
-    
-    change_j = change.isel(source = idx)
-    
-    # Set titles and labels
-    ax_j.set_title(source.model.values)
-
-    # Draw political boundaries and other features, matching the Lambert Conformal projection
-    ax_j.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor='gray')
-    ax_j.add_feature(cfeature.STATES, linewidth=0.5, edgecolor='gray')
-    ax_j.add_feature(cfeature.RIVERS, linestyle='--', color='lightblue', linewidth=0.4, zorder=1)
-    ax_j.add_feature(cfeature.LAKES, linestyle='--', color='lightblue', linewidth=0.4, zorder=1)
-    
-    # Plot the Minnesota boundary on the Lambert Conformal map
-    minnesota.boundary.plot(ax=ax_j, color='black', linewidth=1.5)
-    
-    extent = [
-        metadata['transform'][2],
-        metadata['transform'][2] + metadata['transform'][0] * metadata['width'],
-        metadata['transform'][5] + metadata['transform'][4] * metadata['height'],
-        metadata['transform'][5]
-    ]
-    
-    #transformer for custom extent values
-    transformer = pyproj.Transformer.from_crs(metadata['crs'], lambert_proj.proj4_init, always_xy=True)
-    
-    # latitudes and longitudes for map extent
-    min_lon, min_lat = -97.94, 42.54
-    max_lon, max_lat = -88.69, 49.97
-    
-    # =============================================================================
-    # Contour map
-    # =============================================================================
-    
-    # levels for contours:
-    if np.nanmax(change_j) >100:
-        levels = np.concatenate([
-            np.linspace(-60, 0, 3, endpoint = False),
-            np.linspace(0, 100, 5, endpoint = False),
-            np.linspace(100, np.nanmax(change_j), 2)
-            ])
-    else:
-        levels = np.concatenate([
-            np.linspace(-60, 0, 3, endpoint = False),
-            np.linspace(0, 100, 5, endpoint = False)])
-            
-    #normalize values 
-    norm = plt.Normalize(vmin=-75, vmax = 75)
-    
-    cax = ax_j.contourf(change_j, transform = lambert_proj,extent = extent,
-                    cmap='RdYlBu', origin='upper',
-                    levels = levels,
-                    norm=norm,
-                    )
-    
-    ax_j.set_extent([min_lon,max_lon, min_lat, max_lat])
-    
-    # Add a colorbar with label
-    plt.colorbar(cax, ax=ax_j, orientation='vertical', label='% Change')
-    
-    # Calculate statistics for display once
-    mean_change= np.nanmean(change_j)
-    max_change = np.nanmax(change_j)
-    min_change= np.nanmin(change_j)
-    
-    # Add statistical information as text in a white box
-    stats_text = f'Mean: {mean_change:.2f}%\nStd: {std_change:.2f}%'
-    props = dict(boxstyle='round', facecolor='white', alpha=0.8)
-    ax_j.text(0.02, 0.98, stats_text, transform=ax_j.transAxes, verticalalignment='top', bbox=props)
-    
-    # Add gridlines
-    # ax_j.gridlines(draw_labels=True, x_inline=False,y_inline=False)
-
-save_option = input("Save figure? (y/n): ").lower()
-save_path = '../Figures/RC_proj/single_model_RC_map/'
-save_path = save_path + 'clip_MN/' if clip_MN else save_path + 'whole/'
-
-if save_option == 'y':
-    save_path_name = save_path + 'map_RC_bc_'+bc_source+f'_{scenarios[ix]}_{periods[ix2]}_{RI}yr_{D}da'
-    # Save as SVG
-    plt.savefig(save_path_name +'.svg', format='svg', dpi=300, bbox_inches='tight')
-    # Save as PNG
-    plt.savefig(save_path_name +'.png', format='png', dpi=300, bbox_inches='tight')
-else:
-    plt.show()
