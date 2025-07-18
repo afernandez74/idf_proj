@@ -23,7 +23,7 @@ RI = 10
 # Duration (days)
 D = 1
 
-# #bias type to look at 
+# choose the bias correction data and assign name to bc_source variable below
 # bc_types = ['Unadjusted',
 #             'PRISM',
 #             'Huidobro',
