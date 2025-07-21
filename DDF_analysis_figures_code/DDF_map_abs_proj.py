@@ -263,10 +263,6 @@ for idx in range(len(data_futu['source'])):
     # Assign the calculated difference to the corresponding location in the 'change' DataArray
     abs_change.loc[dict(source=data_futu.source[idx])] = subtraction
     abs_proj.loc[dict(source=data_futu.source[idx])] = tot_proj
-# # get rid of BCC model if ssp370
-# if scenarios[ix] == 'ssp370':
-#     change = change.where(change['model'] != 'BCC-CSM2-MR', drop = True)
-#     abs_change = abs_change.where(abs_change['model'] != 'BCC-CSM2-MR', drop = True)
 
 # calculate multi-model mean of relative change percent
 change_mean = change.mean(dim = 'source',skipna=True)
