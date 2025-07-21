@@ -10,6 +10,7 @@ from scipy.interpolate import griddata, NearestNDInterpolator
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from funcs import mk_test
+from funcs import reproject_raster, init_lambert_proj, load_minnesota_reproj, create_dataarray
 plt.rcdefaults()
 plt.style.use('seaborn-v0_8-poster')
 
@@ -20,8 +21,8 @@ path = '../Data/AMS_NOAA/'
 #save path
 save_path = '../Figures/MK_trend_maps/'
 
-# name of file to read
-name = '07d_AMS_NOAA_Stations.csv'
+# name of file to read - This is the AMS series from NOAA ATLAS 14 website. 
+name = '01d_AMS_NOAA_Stations.csv'
 
 # minimum length of data series to analyze
 min_years = 100
@@ -94,16 +95,13 @@ res_pd = AMS_filt_mk.mean(dim = 'year').to_pandas()
 
 #%% load minnesota outline for map 
 
-url = "https://www2.census.gov/geo/tiger/TIGER2022/STATE/tl_2022_us_state.zip"
-usa = gpd.read_file(url)
-minnesota = usa[usa['NAME'] == 'Minnesota']
+# =============================================================================
+# load minnesota outline and projection for maps
+# =============================================================================
 
-# Lambert Conformal Conic projection 
-lambert_proj = ccrs.LambertConformal(
-    central_longitude = AMS_filt_mk.lon.mean(dim='id').item(),
-    central_latitude = AMS_filt_mk.lat.mean(dim='id').item(),
-    standard_parallels = (33,45)
-    )
+lambert_proj = init_lambert_proj()
+shape_path = "/Users/afer/idf_cmip6_local/idf_repo/Data/tl_2022_us_state.zip"
+minnesota = load_minnesota_reproj(lambert_proj,shape_path)
 
 #%% map trend test results 
 
